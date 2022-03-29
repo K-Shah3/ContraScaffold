@@ -1,5 +1,5 @@
 from sklearn import config_context
-import datasets.download_datasets
+import datasets.fine_tuning.ogb.download_datasets as download_ogb
 import yaml
 from torch_geometric.loader import DataLoader
 from models.fine_tuning_models import GNNGraphPred
@@ -9,33 +9,8 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score, mean_squared_error
 from scipy.stats import pearsonr
-
-def get_num_type_metric_of_ogbg_dataset(dataset_name):
-    '''
-    Returns the number of tasks, the type of task and the metric for the ogbg dataset
-    See https://arxiv.org/abs/2005.00687
-
-        Parameters:
-                dataset_name (str): name of ogbg dataset (without the ogbg_mol part)
-
-        Returns:
-                task_num (int): #Tasks for the dataset
-                task_type (str): 'clf' for binary classification 'reg' for regression
-                metric (str): 'roc-auc' | 'ap' | 'rmse'
-    '''
-    task_num_dict = {'tox21':12, 'toxcast':617, 'muv':17, 
-                    'bace':1, 'bbbp':1, 'clintox':2, 
-                    'sider':27, 'esol':1, 'freesolv':1, 'lipo':1}
-
-    task_type_dict = {'tox21':'clf', 'toxcast':'clf', 'muv':'clf', 
-                    'bace':'clf', 'bbbp':'clf', 'clintox':'clf', 
-                    'sider':'clf', 'esol':'reg', 'freesolv':'reg', 'lipo':'reg'}
-    
-    metric_dict = {'tox21':'roc-auc', 'toxcast':'roc-auc', 'muv':'ap', 
-                    'bace':'roc-auc', 'bbbp':'roc-auc', 'clintox':'roc-auc', 
-                    'sider':'roc-auc', 'esol':'rmse', 'freesolv':'rmse', 'lipo':'rmse'}
-
-    return task_num_dict[dataset_name], task_type_dict[dataset_name], metric_dict[dataset_name]
+import os
+import datetime
 
 def get_device(config_gpu):
     if torch.cuda.is_available() and config_gpu != 'cpu':
@@ -55,10 +30,10 @@ def clf_training(model, device, loader, optimizer):
         y = batch.y.view(pred.shape).to(torch.float64)
 
         #Whether y is non-null or not.
-        is_valid = y**2 > 0
+        is_valid = y**2 >= 0
         #Loss matrix
         criterion = torch.nn.BCEWithLogitsLoss(reduction = "none")
-        loss_mat = criterion(pred.double(), (y+1)/2)
+        loss_mat = criterion(pred.double(), y)
         #loss matrix after removing null target
         loss_mat = torch.where(is_valid, loss_mat, torch.zeros(loss_mat.shape).to(loss_mat.device).to(loss_mat.dtype))
             
@@ -97,13 +72,13 @@ def clf_evaluation(model, device, loader):
 
     y_true = torch.cat(y_true, dim = 0).cpu().numpy()
     y_scores = torch.cat(y_scores, dim = 0).cpu().numpy()
-
     roc_list = []
     for i in range(y_true.shape[1]):
-        #AUC is only defined when there is at least one positive data.
-        if np.sum(y_true[:,i] == 1) > 0 and np.sum(y_true[:,i] == -1) > 0:
-            is_valid = y_true[:,i]**2 > 0
-            roc_list.append(roc_auc_score((y_true[is_valid,i] + 1)/2, y_scores[is_valid,i]))
+        #AUC is only defined when there is more than one class.
+        if np.sum(y_true[:,i] == 1) > 0 and np.sum(y_true[:,i] == 0) > 0:
+            is_valid = y_true[:,i]**2 >= 0
+            # roc_list.append(roc_auc_score((y_true[is_valid,i] + 1)/2, y_scores[is_valid,i]))
+            roc_list.append(roc_auc_score(y_true[is_valid,i], y_scores[is_valid,i]))
 
     if len(roc_list) < y_true.shape[1]:
         print("Some target is missing!")
@@ -127,7 +102,6 @@ def reg_evaluation(model, device, loader):
 
     y_true = torch.cat(y_true, dim = 0).cpu().numpy().flatten()
     y_scores = torch.cat(y_scores, dim = 0).cpu().numpy().flatten()
-    print(y_true.shape, y_scores.shape)
     mse = mean_squared_error(y_true, y_scores)
     cor = pearsonr(y_true, y_scores)[0]
     print(mse, cor)
@@ -137,26 +111,46 @@ def reg_evaluation(model, device, loader):
 def main():
     # set up
     config = yaml.load(open("config/config.yaml", "r"), Loader=yaml.FullLoader)
-    print(config)
-    # device = get_device(config['gpu'])
-    device = 'cpu'
+    device = get_device(config['gpu'])
+    torch.manual_seed(config['runseed'])
+    np.random.seed(config['runseed'])
+    now_time = datetime.datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
+    # device = 'cpu'
     
     # set up dataset
     dataset_config = config['fine_tune_dataset']
     dataset_name = dataset_config['ogbg_dataset_name']
+    print(f'dataset name: {dataset_name}')
     dataset_path = dataset_config['ogbg_data_path']
-    num_tasks, task_type, metric = get_num_type_metric_of_ogbg_dataset(dataset_name)
-    dataset = datasets.download_datasets.get_ogbg_dataset(dataset_name=dataset_name, root=dataset_path)
-    train_loader, valid_loader, test_loader = datasets.download_datasets.get_ogbg_dataset_loaders(dataset_name, batch_size=dataset_config['batch_size'], root=dataset_path)
+    num_tasks, task_type, metric = download_ogb.get_num_type_metric_of_ogbg_dataset(dataset_name)
+    dataset = download_ogb.get_ogbg_dataset(dataset_name=dataset_name, root=dataset_path)
+    train_loader, valid_loader, test_loader = download_ogb.get_ogbg_dataset_loaders(dataset_name, batch_size=dataset_config['batch_size'], root=dataset_path)
+
+    # set up load and save directories
+    load_save_config = config["load_save_fine_tune"]
+    if load_save_config["load_model_dir"]:
+        load_dir = 'results/' + load_save_config["load_model_dir"]
+        load_file = load_dir + load_save_config["load_model_name"]
+    else:
+        load_file = None
     
+    save_dir = 'results/fine_tuning/' + dataset_name + "/"
+    if not os.path.exists(save_dir):
+        os.system(f'mkdir -p {save_dir}')
+
     # set up model
     model_config = config['fine_tune_model']
     model = GNNGraphPred(model_config['num_layer'], model_config['emb_dim'], num_tasks, JK = model_config['JK'], 
                         drop_ratio = model_config['dropout_ratio'], graph_pooling = model_config['graph_pooling'], 
                         gnn_type = model_config['gnn_type'])
-    # TODO: preloaded model?
-    model.to(device)
+    
+    if load_file:
+        model.from_pretrained(load_file)
+        print('successfully load pretrained model!')
+    else:
+        print('No pretrain! train from scratch!')
 
+    
     # set up optimizer
     # different learning rate for different part of GNN
     optimizer_config = config['fine_tune_optimizer']
@@ -169,8 +163,21 @@ def main():
     # train, validate and test
     training_config = config['fine_tune_training']
 
+    model_name = dataset_name + '_do_' + str(model_config['dropout_ratio']) + '_seed_' + str(config['runseed']) + '_JK_' + str(model_config['JK'])
+    model_name += '_numlayer_' + str(model_config['num_layer']) + '_embdim_' + str(model_config['emb_dim'])
+    model_name += '_graphpooling_' + str(model_config['graph_pooling']) + '_gnntype_' + str(model_config['gnn_type'])
+    model_name += '_epoch_' + str(training_config['epoch']) + '_bs_' + str(dataset_config['batch_size'])
+    model.to(device)
+
+    txtfile = save_dir + model_name + ".txt"
+    if os.path.exists(txtfile):
+        backup_file_name = txtfile + ".bak-"+ now_time
+        os.system(f'mv {txtfile} {backup_file_name}')
+
     # training based on task type
     if task_type == 'clf':
+        with open(txtfile, "a") as myfile:
+            myfile.write('epoch: train_auc val_auc test_auc\n')
         wait = 0
         best_auc = 0
         patience = 10
@@ -188,7 +195,10 @@ def main():
             val_auc = clf_evaluation(model, device, valid_loader)
             test_auc = clf_evaluation(model, device, test_loader)
 
-            print("train: %f val: %f test: %f" %(train_auc, val_auc, test_auc))
+            with open(txtfile, "a") as myfile:
+                myfile.write(str(int(epoch)) + ': ' + str(train_auc) + ' ' + str(val_auc) + ' ' + str(test_auc) + "\n")
+
+            print("train auc: %f val auc: %f test auc: %f" %(train_auc, val_auc, test_auc))
 
             # Early stopping
             if np.greater(val_auc, best_auc):  # change for train loss
@@ -201,7 +211,8 @@ def main():
                     break
 
     elif task_type == 'reg':
-        
+        with open(txtfile, "a") as myfile:
+            myfile.write('epoch: train_mse train_cor val_mse val_cor test_mse test_cor\n')
         for epoch in range(1, training_config['epoch']+1):
             print("====epoch " + str(epoch))
 
@@ -216,8 +227,18 @@ def main():
             val_mse, val_cor = reg_evaluation(model, device, valid_loader)
             test_mse, test_cor = reg_evaluation(model, device, test_loader)
 
+            with open(txtfile, "a") as myfile:
+                myfile.write(str(int(epoch)) + ': ' + str(train_mse) + ' ' + str(train_cor) + ' ' + str(val_mse) + ' ' + str(val_cor) + ' ' + str(test_mse) + ' ' + str(test_cor) + "\n")
+                
             print("mse train: %f mse val: %f mse test: %f" %(train_mse, val_mse, test_mse))
             print("cor train: %f cor val: %f cor test: %f" %(train_cor, val_cor, test_cor))
+
+    if load_save_config["save_model"]:
+        model_save_file = save_dir + model_name + ".pth"
+        if os.path.exists(model_save_file):
+            backup_file_name = model_save_file + ".bak-"+ now_time
+            os.system(f'mv {model_save_file} {backup_file_name}')
+        torch.save(model.gnn.state_dict(), save_dir + model_name + ".pth")
 
 if __name__ == '__main__':
     main()

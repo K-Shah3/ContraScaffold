@@ -1,23 +1,29 @@
-gpu: cuda:0                                 # training GPU 
+gpu: cuda:0                                   # training GPU
+runseed: 42                                   # seed for torch and numpy
 
 fine_tune_dataset:
-    batch_size: 32                          # batch size
-    ogbg_data_path: datasets/               # path of pre-training ogbg data
-    ogbg_dataset_name: sider                # name of specific ogbg dataset
+    batch_size: 32                            # batch size
+    ogbg_data_path: datasets/fine_tuning/ogb  # path of pre-training ogbg data
+    ogbg_dataset_name: sider                # name of specific ogbg dataset 'tox21','toxcast','muv','bace','bbbp','clintox','sider','esol','freesolv','lipo'
 
 fine_tune_model:
-    num_layer: 4                            # number of message passing layers
-    emb_dim: 32                             # embedding dimension
-    dropout_ratio: 0.5                      # dropout ration
-    graph_pooling: mean                     # graph level pooling (sum, mean, max, set2set, attention)
-    JK: last                                # how the node features across layers are combined. last, sum, max or concat
-    gnn_type: gcn                           # GNN type (gin, gcn)
+    num_layer: 4                              # number of message passing layers
+    emb_dim: 32                               # embedding dimension
+    dropout_ratio: 0.5                        # dropout ration
+    graph_pooling: mean                       # graph level pooling (sum, mean, max, set2set, attention)
+    JK: last                                  # how the node features across layers are combined. last, sum, max or concat
+    gnn_type: gin                             # GNN type (gin, gcn)
 
 fine_tune_optimizer:
-    lr: 0.001                               # learning rate
-    lr_scale: 1                             # relative learning rate for the feature extraction layer
-    decay: 0                                # weight decay 
+    lr: 0.001                                 # learning rate
+    lr_scale: 1                               # relative learning rate for the feature extraction layer
+    decay: 0                                  # weight decay 
 
 fine_tune_training:
-    epoch: 3                                # total number of epochs
+    epoch: 2                                # total number of epochs
     eval_train: True                        # evaluating training or not
+
+load_save_fine_tune:
+    load_model_dir: null                    # directory of the model to be loaded (not including results/ e.g. ... 
+    load_model_name: null                   # exact file name without extension 
+    save_model: True                        # True or False if want to save fine_tuning model 

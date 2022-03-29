@@ -129,4 +129,7 @@ dmypy.json
 .pyre/
 
 # Datasets downloaded 
-datasets/ogbg*
+datasets/fine_tuning/ogb/ogb*
+datasets/pre_training/pubchem/
+results/
+
