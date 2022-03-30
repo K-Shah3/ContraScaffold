@@ -2,6 +2,7 @@ from ogb.graphproppred import PygGraphPropPredDataset
 from torch_geometric.loader import DataLoader
 import os
 from torch_geometric.utils import add_self_loops
+import torch
 
 OGBG_DATASET_STEM = 'ogbg-mol'
 
@@ -45,6 +46,15 @@ def get_ogbg_dataset(dataset_name, root = ''):
     name = OGBG_DATASET_STEM + dataset_name
     return PygGraphPropPredDataset(name = name, root= root)
 
+def get_ogbg_dataset_masks(dataset_name, batch_size=32, root='', shuffle_train=True, shuffle_valid=False, shuffle_test=False):
+    dataset = get_ogbg_dataset(dataset_name, root)
+    split_idx = dataset.get_idx_split()
+    train_mask = torch.zeros(len(dataset)).scatter_(0, split_idx["train"], 1) > 0
+    valid_mask = torch.zeros(len(dataset)).scatter_(0, split_idx["valid"], 1) > 0
+    test_mask = torch.zeros(len(dataset)).scatter_(0, split_idx["test"], 1) > 0
+    return train_mask, valid_mask, test_mask
+
+
 def get_ogbg_dataset_loaders(dataset_name, batch_size=32, root='', shuffle_train=True, shuffle_valid=False, shuffle_test=False):
     dataset = get_ogbg_dataset(dataset_name, root)
     split_idx = dataset.get_idx_split()    
@@ -57,7 +67,7 @@ def get_ogbg_dataset_loaders(dataset_name, batch_size=32, root='', shuffle_train
 if __name__ == "__main__":
     # run this file to download ogbg datasets locally under the datasets/ directory
     # when running from this directory use root = ''
-    download_ogbg_datasets()
+    # download_ogbg_datasets()
     
     # dataset_names = ['tox21', 'toxcast', 'muv', 
     #                 'bace', 'bbbp', 'clintox', 
@@ -72,3 +82,9 @@ if __name__ == "__main__":
     #     print(test.x)
     #     print(test.y)
     #     print('----------------------')
+    dataset_name = 'bbbp'
+    root = ''
+    train_mask, valid_mask, test_mask = get_ogbg_dataset_masks(dataset_name, root)
+
+
+

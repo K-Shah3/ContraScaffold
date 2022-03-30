@@ -6,6 +6,11 @@ import torch.nn.functional as F
 import torch.nn as nn
 from torch_scatter import scatter_add
 from torch_geometric.nn.inits import glorot, zeros
+# from dig.sslgraph.method.contrastive.model.contrastive import Contrastive
+# from dig.sslgraph.method.contrastive.views_fn import NodeAttrMask, EdgePerturbation, \
+#     UniformSample, RWSample, RandomView
+from method.dig_contrastive import Contrastive
+from method.views_fn import IdentityViewFunction, NodeAttrMask
 
 num_atom_type = 120 #including the extra mask tokens=119
 num_chirality_tag = 3 # original =3. including the extra mask tokens=3
@@ -184,7 +189,6 @@ class GNN(torch.nn.Module):
 
         return node_representation
 
-
 class GNNGraphPred(torch.nn.Module):
     """
     Extension of GIN to incorporate edge information by concatenation.
@@ -261,3 +265,46 @@ class GNNGraphPred(torch.nn.Module):
         node_representation = self.gnn(x, edge_index, edge_attr)
 
         return self.graph_pred_linear(self.pool(node_representation, batch))
+
+class GNNGraphCL(Contrastive):
+    """_summary_
+
+    Args:
+        dim (int): The embedding dimension.
+        aug1 (sting, optinal): Types of augmentation for the first view from (:obj:`"dropN"`, 
+            :obj:`"permE"`, :obj:`"subgraph"`, :obj:`"maskN"`, :obj:`"random2"`, :obj:`"random3"`, 
+            :obj:`"random4"`). (default: :obj:`None`)
+        aug2 (sting, optinal): Types of augmentation for the second view from (:obj:`"dropN"`, 
+            :obj:`"permE"`, :obj:`"subgraph"`, :obj:`"maskN"`, :obj:`"random2"`, :obj:`"random3"`, 
+            :obj:`"random4"`). (default: :obj:`None`)
+        aug_ratio (float, optional): The ratio of augmentations. A number between [0,1).
+        **kwargs (optinal): Additional arguments of :class:`dig.sslgraph.method.Contrastive`.
+    """
+
+    def __init__(self, dim, aug_1=None, aug_2=None, aug_ratio=0.2, **kwargs):
+        views_fn = []
+        # TODO: implement other augmentations
+        for aug in [aug_1, aug_2]:
+            if aug is None:
+                views_fn.append(lambda x: x)
+            elif aug == 'identity':
+                views_fn.append(IdentityViewFunction())
+            elif aug == 'maskN':
+                views_fn.append(NodeAttrMask(mask_ratio=aug_ratio))
+            else:
+                raise Exception("Aug must be from ['maskN', 'identity'] or None.")
+
+        super(GNNGraphCL, self).__init__(objective='NCE', 
+                                        views_fn=views_fn,
+                                        z_n_dim=dim,
+                                        proj='MLP',
+                                        node_level=True,
+                                        graph_level=False,
+                                        **kwargs)
+
+    def train(self, encoders, data_loader, optimizer, epochs, per_epoch_out=False):
+        # GraphCL removes projection heads after pre-training
+        for enc, _ in super(GNNGraphCL, self).train(encoders, data_loader, 
+                                                    optimizer, epochs, per_epoch_out):
+            yield enc
+            

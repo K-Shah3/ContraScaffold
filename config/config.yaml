@@ -3,6 +3,11 @@ runseed: 42                                   # seed for torch and numpy
 
 fine_tune_dataset:
     batch_size: 32                            # batch size
+    ogbg_data_path: datasets/fine_tuning/ogb  # path of fine-tuning ogbg data
+    ogbg_dataset_name: sider                # name of specific ogbg dataset 'tox21','toxcast','muv','bace','bbbp','clintox','sider','esol','freesolv','lipo'
+
+pre_train_dataset:
+    batch_size: 32                            # batch size
     ogbg_data_path: datasets/fine_tuning/ogb  # path of pre-training ogbg data
     ogbg_dataset_name: sider                # name of specific ogbg dataset 'tox21','toxcast','muv','bace','bbbp','clintox','sider','esol','freesolv','lipo'
 
@@ -14,16 +19,33 @@ fine_tune_model:
     JK: last                                  # how the node features across layers are combined. last, sum, max or concat
     gnn_type: gin                             # GNN type (gin, gcn)
 
+pre_train_encoder:
+    num_layer: 4
+    emb_dim: 32
+    dropout_ratio: 0.5                        # dropout ration
+    graph_pooling: mean                       # graph level pooling (sum, mean, max, set2set, attention)
+    JK: last                                  # how the node features across layers are combined. last, sum, max or concat
+    gnn_type: gin                             # GNN type (gin, gcn)
+    aug1: identity
+    aug2: null
+    tau: 0.2
+    log_interval: 10
+
 fine_tune_optimizer:
     lr: 0.001                                 # learning rate
     lr_scale: 1                               # relative learning rate for the feature extraction layer
     decay: 0                                  # weight decay 
 
 fine_tune_training:
-    epoch: 2                                # total number of epochs
+    epoch: 3                                # total number of epochs
     eval_train: True                        # evaluating training or not
 
 load_save_fine_tune:
-    load_model_dir: null                    # directory of the model to be loaded (not including results/ e.g. ... 
-    load_model_name: null                   # exact file name without extension 
+    load_model_dir: fine_tuning/bbbp/     # directory of the model to be loaded (not including results/ e.g. ... fine_tuning/sider/
+    load_model_name: bbbp_do_0.5_seed_42_JK_last_numlayer_4_embdim_32_graphpooling_mean_gnntype_gin_epoch_3_bs_32_status_scratch                # exact file name without extension 
+    save_model: True                        # True or False if want to save fine_tuning model 
+
+load_save_pre_train:
+    load_model_dir: null     # directory of the model to be loaded (not including results/ e.g. ... fine_tuning/sider/
+    load_model_name: null                # exact file name without extension 
     save_model: True                        # True or False if want to save fine_tuning model 

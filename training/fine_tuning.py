@@ -2,7 +2,7 @@ from sklearn import config_context
 import datasets.fine_tuning.ogb.download_datasets as download_ogb
 import yaml
 from torch_geometric.loader import DataLoader
-from models.fine_tuning_models import GNNGraphPred
+from method.gnn_models import GNNGraphPred
 import torch
 import torch.optim as optim
 import numpy as np
@@ -11,16 +11,7 @@ from sklearn.metrics import roc_auc_score, mean_squared_error
 from scipy.stats import pearsonr
 import os
 import datetime
-
-def get_device(config_gpu):
-    if torch.cuda.is_available() and config_gpu != 'cpu':
-        device = config_gpu
-        torch.cuda.set_device(device)
-    else:
-        device = 'cpu'
-    print("Running on:", device)
-
-    return device
+from utils import get_device
 
 def clf_training(model, device, loader, optimizer):
     model.train()
@@ -145,10 +136,12 @@ def main():
                         gnn_type = model_config['gnn_type'])
     
     if load_file:
-        model.from_pretrained(load_file)
+        model.from_pretrained(load_file + ".pth")
         print('successfully load pretrained model!')
+        model_status = "loaded"
     else:
         print('No pretrain! train from scratch!')
+        model_status = "scratch"
 
     
     # set up optimizer
@@ -166,7 +159,7 @@ def main():
     model_name = dataset_name + '_do_' + str(model_config['dropout_ratio']) + '_seed_' + str(config['runseed']) + '_JK_' + str(model_config['JK'])
     model_name += '_numlayer_' + str(model_config['num_layer']) + '_embdim_' + str(model_config['emb_dim'])
     model_name += '_graphpooling_' + str(model_config['graph_pooling']) + '_gnntype_' + str(model_config['gnn_type'])
-    model_name += '_epoch_' + str(training_config['epoch']) + '_bs_' + str(dataset_config['batch_size'])
+    model_name += '_epoch_' + str(training_config['epoch']) + '_bs_' + str(dataset_config['batch_size']) + "_status_" + model_status
     model.to(device)
 
     txtfile = save_dir + model_name + ".txt"
