@@ -85,7 +85,9 @@ if __name__ == "__main__":
     dataset_name = 'sider'
     root = ''
     train_loader, valid_loader, test_loader = get_ogbg_dataset_loaders(dataset_name, root=root)
-    print(next(iter(train_loader)))
+    dataset = get_ogbg_dataset(dataset_name, root)
+    print(dataset[0])
+    # print(next(iter(train_loader)))
 
 
 

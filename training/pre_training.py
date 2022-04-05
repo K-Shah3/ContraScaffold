@@ -1,5 +1,5 @@
 from sklearn import config_context
-import datasets.fine_tuning.ogb.download_datasets as download_ogb
+import datasets.pre_training.pubchem.download_datasets as download_pubchem
 import yaml
 from torch_geometric.loader import DataLoader
 from method.gnn_models import GNNGraphPred, GNN, GNNGraphCL
@@ -28,14 +28,20 @@ def main():
     
     # set up dataset
     dataset_config = config['pre_train_dataset']
-    dataset_name = dataset_config['ogbg_dataset_name']
+    dataset_name = dataset_config['pubchem_dataset_name']
     print(f'dataset name: {dataset_name}')
-    dataset_path = dataset_config['ogbg_data_path']
-    num_tasks, task_type, metric = download_ogb.get_num_type_metric_of_ogbg_dataset(dataset_name)
-    dataset = download_ogb.get_ogbg_dataset(dataset_name=dataset_name, root=dataset_path)
-    train_loader, valid_loader, test_loader = download_ogb.get_ogbg_dataset_loaders(dataset_name, batch_size=dataset_config['batch_size'], root=dataset_path)
-    train_mask, valid_mask, test_mask = download_ogb.get_ogbg_dataset_masks(dataset_name, root=dataset_path)
+    dataset_path = dataset_config['pubchem_data_path']
+    num_tasks, task_type = download_pubchem.get_num_type_of_pubchem_dataset(dataset_name)
+    dataset = download_pubchem.MoleculeDataset(dataset_name=dataset_name, root=dataset_path, device=device)
+    dataset_wrapper = download_pubchem.MoleculeDatasetWrapper(dataset_name=dataset_name, device=device, 
+                                                                batch_size=dataset_config['batch_size'], 
+                                                                train_fraction=dataset_config['train_fraction'],
+                                                                valid_fraction=dataset_config['valid_fraction'],
+                                                                test_fraction=dataset_config['test_fraction'],
+                                                                root=dataset_path, splitting=dataset_config['splitting'])
 
+    train_loader, valid_loader, test_loader = dataset_wrapper.get_data_loaders()
+    
     # set up load and save directories
     load_save_config = config["load_save_pre_train"]
     if load_save_config["load_model_dir"]:
@@ -75,6 +81,7 @@ def main():
     else:
         aug_2 = contrastive_config['aug_2']
 
+    contrastive_name = f"_aug1_{contrastive_config['aug_1']}_aug2_{contrastive_config['aug_2']}"
     assert contrastive_config['emb_dim'] == encoder_config['emb_dim']
     graphcl = GNNGraphCL(contrastive_config['emb_dim'], aug_1=aug_1, aug_2=aug_2, tau=contrastive_config['tau'], device=device)
     
@@ -88,7 +95,8 @@ def main():
         save_encoder = encs[-1]
 
     if load_save_config["save_model"]:
-        encoder_save_file = save_dir + encoder_name + ".pth"
+        encoder_save_file = save_dir + encoder_name + contrastive_name + ".pth"
+        print(f'saving model to: {encoder_save_file}')
 
         if os.path.exists(encoder_save_file):
             backup_file_name = encoder_save_file + ".bak-"+ now_time

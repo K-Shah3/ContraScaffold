@@ -4,12 +4,16 @@ runseed: 42                                   # seed for torch and numpy
 fine_tune_dataset:
     batch_size: 32                            # batch size
     ogbg_data_path: datasets/fine_tuning/ogb  # path of fine-tuning ogbg data
-    ogbg_dataset_name: bace                # name of specific ogbg dataset 'tox21','toxcast','muv','bace','bbbp','clintox','sider','esol','freesolv','lipo'
+    ogbg_dataset_name: sider                # name of specific ogbg dataset 'tox21','toxcast','muv','bace','bbbp','clintox','sider','esol','freesolv','lipo'
 
 pre_train_dataset:
     batch_size: 32                            # batch size
-    ogbg_data_path: datasets/fine_tuning/ogb  # path of pre-training ogbg data
-    ogbg_dataset_name: sider                # name of specific ogbg dataset 'tox21','toxcast','muv','bace','bbbp','clintox','sider','esol','freesolv','lipo'
+    pubchem_data_path: datasets/pre_training/pubchem  # path of pre-training ogbg data
+    pubchem_dataset_name: sider                # name of specific ogbg dataset 'tox21','toxcast','muv','bace','bbbp','clintox','sider','esol','freesolv','lipo'
+    train_fraction: 0.8
+    valid_fraction: 0.1
+    test_fraction: 0.1
+    splitting: scaffold                      # [scaffold, random] to determine how to split the dataset
 
 fine_tune_model:
     num_layer: 4                              # number of message passing layers
@@ -41,7 +45,7 @@ pre_training:
 
 contrastive:
     emb_dim: 32
-    aug_1: maskN                          # identity or maskN
+    aug_1: maskNScaffold                     # identity or maskN or maskNScaffold
     aug_2: identity
     tau: 0.2
 
@@ -56,8 +60,8 @@ evaluator:
     eval_train: True                        # evaluating training or not
 
 load_save_fine_tune:
-    load_model_dir: pre_training/bace/     # directory of the model to be loaded (not including results/ e.g. ... fine_tuning/sider/
-    load_model_name: bace_do_0.5_seed_42_JK_last_numlayer_4_embdim_32_gnntype_gin_bs_32_status_scratch                # exact file name without extension 
+    load_model_dir: pre_training/sider/     # directory of the model to be loaded (not including results/ e.g. ... fine_tuning/sider/
+    load_model_name: sider_do_0.5_seed_42_JK_last_numlayer_4_embdim_32_gnntype_gin_bs_32_status_scratch_aug1_maskN_aug2_identity                # exact file name without extension 
     save_model: True                        # True or False if want to save fine_tuning model 
 
 load_save_pre_train:

@@ -10,7 +10,7 @@ from torch_geometric.nn.inits import glorot, zeros
 # from dig.sslgraph.method.contrastive.views_fn import NodeAttrMask, EdgePerturbation, \
 #     UniformSample, RWSample, RandomView
 from method.dig_contrastive import Contrastive
-from method.views_fn import IdentityViewFunction, NodeAttrMask
+from method.views_fn import IdentityViewFunction, NodeAttrMask, ScaffoldAwareNodeAttrMask
 
 num_atom_type = 120 #including the extra mask tokens=119
 num_chirality_tag = 3 # original =3. including the extra mask tokens=3
@@ -43,7 +43,8 @@ class GINConv(MessagePassing):
 
         #add features corresponding to self-loop edges.
         # self_loop_attr = torch.zeros(x.size(0), 2)
-        self_loop_attr = torch.zeros(x.size(0), 3)
+        edge_attr_dim = edge_attr.shape[1]
+        self_loop_attr = torch.zeros(x.size(0), edge_attr_dim)
         self_loop_attr[:,0] = 4 #bond type for self-loop edge
         self_loop_attr = self_loop_attr.to(edge_attr.device).to(edge_attr.dtype)
         edge_attr = torch.cat((edge_attr, self_loop_attr), dim = 0)
@@ -299,22 +300,14 @@ class GNNGraphCL(Contrastive):
         views_fn = []
         # TODO: implement other augmentations
         for aug in [aug_1, aug_2]:
-            if aug is None:
-                views_fn.append(lambda x: x)
-            elif aug == 'identity':
+            if aug is None or aug == 'identity':
                 views_fn.append(IdentityViewFunction())
             elif aug == 'maskN':
                 views_fn.append(NodeAttrMask(mask_ratio=aug_ratio, device=self.device))
+            elif aug == 'maskNScaffold':
+                views_fn.append(ScaffoldAwareNodeAttrMask(mask_ratio=aug_ratio, device=self.device))
             else:
-                raise Exception("Aug must be from ['maskN', 'identity'] or None.")
-
-        # super(GNNGraphCL, self).__init__(objective='NCE', 
-        #                                 views_fn=views_fn,
-        #                                 z_n_dim=dim,
-        #                                 proj='MLP',
-        #                                 node_level=True,
-        #                                 graph_level=False,
-        #                                 **kwargs)
+                raise Exception("Aug must be from ['maskN', 'identity', 'maskNScaffold'] or None.")
         
         super(GNNGraphCL, self).__init__(objective='NCE', 
                                         views_fn=views_fn,

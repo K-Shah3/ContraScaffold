@@ -136,6 +136,7 @@ def main():
                         gnn_type = model_config['gnn_type'])
     
     if load_file:
+        print(f'loading model from {load_file}')
         model.from_pretrained(load_file + ".pth")
         print('successfully load pretrained model!')
         model_status = "loaded"
