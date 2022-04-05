@@ -4,6 +4,7 @@ from tqdm import trange
 import torch.nn as nn
 from torch_geometric.data import Batch, Data
 from dig.sslgraph.method.contrastive.objectives import NCE_loss, JSE_loss
+from torch_geometric.nn import global_add_pool, global_mean_pool
 
 
 class Contrastive(nn.Module):
@@ -52,6 +53,7 @@ class Contrastive(nn.Module):
                  z_n_dim=None,
                  proj=None,
                  proj_n=None,
+                 proj_out_dim=None,
                  neg_by_crpt=False,
                  tau=0.5,
                  device=None,
@@ -70,6 +72,7 @@ class Contrastive(nn.Module):
         self.z_n_dim = z_n_dim
         self.proj = proj
         self.proj_n = proj_n
+        self.proj_out_dim = proj_out_dim
         self.neg_by_crpt = neg_by_crpt
         self.tau = tau
         self.choice_model = choice_model
@@ -102,10 +105,15 @@ class Contrastive(nn.Module):
         """
         self.per_epoch_out = per_epoch_out
         
-        if self.z_n_dim is None:
+        if not self.proj_out_dim and self.z_n_dim is None:
             self.proj_out_dim = self.z_dim
         else:
             self.proj_out_dim = self.z_n_dim
+            
+        # if self.z_n_dim is None:
+        #     self.proj_out_dim = self.z_dim
+        # else:
+        #     self.proj_out_dim = self.z_n_dim
         
         if self.graph_level and self.proj is not None:
             self.proj_head_g = self._get_proj(self.proj, self.z_dim).to(self.device)
@@ -161,6 +169,7 @@ class Contrastive(nn.Module):
                 epoch_loss = 0.0
                 t.set_description('Pretraining: epoch %d' % (epoch+1))
                 for data in data_loader:
+                    data = data.to(self.device)
                     optimizer.zero_grad()
                     if None in self.views_fn: 
                         # For view fn that returns multiple views
@@ -174,6 +183,8 @@ class Contrastive(nn.Module):
                     zs = []
                     for view, enc in zip(views, encoders):
                         z = self._get_embed(enc, view.to(self.device))
+                        # pool z
+                        z = global_mean_pool(z, data.batch)
                         zs.append(self.proj_head_g(z))
 
                     loss = self.loss_fn(zs, neg_by_crpt=self.neg_by_crpt, tau=self.tau)

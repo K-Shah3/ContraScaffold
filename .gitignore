@@ -133,3 +133,5 @@ datasets/fine_tuning/ogb/ogb*
 datasets/pre_training/pubchem/
 results/
 
+training/testing.py
+

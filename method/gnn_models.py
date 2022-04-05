@@ -161,7 +161,17 @@ class GNN(torch.nn.Module):
         else:
             raise ValueError("unmatched number of arguments.")
 
-        x = self.x_embedding1(x[:,0]) + self.x_embedding2(x[:,1])
+        # x1_unique = torch.unique(x[:, 0])
+        # x2_unique = torch.unique(x[:, 1])
+        # print(f'unique x1: {x1_unique}')
+        # print(f'unique x2: {x2_unique}')
+        
+        x1 = self.x_embedding1(x[:, 0])
+        x2 = self.x_embedding2(x[:, 1])
+
+        x = x1 + x2
+
+        # x = self.x_embedding1(x[:,0]) + self.x_embedding2(x[:,1])
 
         h_list = [x]
         for layer in range(self.num_layer):
@@ -188,6 +198,9 @@ class GNN(torch.nn.Module):
             node_representation = torch.sum(torch.cat(h_list, dim = 0), dim = 0)[0]
 
         return node_representation
+
+    def load_model(self, load_file):
+        self.load_state_dict(torch.load(load_file))
 
 class GNNGraphPred(torch.nn.Module):
     """
@@ -281,7 +294,8 @@ class GNNGraphCL(Contrastive):
         **kwargs (optinal): Additional arguments of :class:`dig.sslgraph.method.Contrastive`.
     """
 
-    def __init__(self, dim, aug_1=None, aug_2=None, aug_ratio=0.2, **kwargs):
+    def __init__(self, dim, aug_1=None, aug_2=None, aug_ratio=0.2, device='cpu', **kwargs):
+        self.device = device
         views_fn = []
         # TODO: implement other augmentations
         for aug in [aug_1, aug_2]:
@@ -290,16 +304,27 @@ class GNNGraphCL(Contrastive):
             elif aug == 'identity':
                 views_fn.append(IdentityViewFunction())
             elif aug == 'maskN':
-                views_fn.append(NodeAttrMask(mask_ratio=aug_ratio))
+                views_fn.append(NodeAttrMask(mask_ratio=aug_ratio, device=self.device))
             else:
                 raise Exception("Aug must be from ['maskN', 'identity'] or None.")
 
+        # super(GNNGraphCL, self).__init__(objective='NCE', 
+        #                                 views_fn=views_fn,
+        #                                 z_n_dim=dim,
+        #                                 proj='MLP',
+        #                                 node_level=True,
+        #                                 graph_level=False,
+        #                                 **kwargs)
+        
         super(GNNGraphCL, self).__init__(objective='NCE', 
                                         views_fn=views_fn,
                                         z_n_dim=dim,
-                                        proj='MLP',
-                                        node_level=True,
-                                        graph_level=False,
+                                        z_dim=dim,
+                                        proj_out_dim=1,
+                                        proj='linear',
+                                        node_level=False,
+                                        graph_level=True,
+                                        device=self.device,
                                         **kwargs)
 
     def train(self, encoders, data_loader, optimizer, epochs, per_epoch_out=False):

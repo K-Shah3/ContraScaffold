@@ -82,9 +82,10 @@ if __name__ == "__main__":
     #     print(test.x)
     #     print(test.y)
     #     print('----------------------')
-    dataset_name = 'bbbp'
+    dataset_name = 'sider'
     root = ''
-    train_mask, valid_mask, test_mask = get_ogbg_dataset_masks(dataset_name, root)
+    train_loader, valid_loader, test_loader = get_ogbg_dataset_loaders(dataset_name, root=root)
+    print(next(iter(train_loader)))
 
 
 

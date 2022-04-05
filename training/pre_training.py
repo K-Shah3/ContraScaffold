@@ -52,18 +52,52 @@ def main():
     encoder_config = config['pre_train_encoder']
     encoder = GNN(encoder_config['num_layer'], emb_dim=encoder_config['emb_dim'], JK=encoder_config["JK"], 
                     drop_ratio=encoder_config["dropout_ratio"], gnn_type=encoder_config["gnn_type"])
-    if not encoder_config['aug1']:
-        aug1 = None
+    
+    if load_file:
+        encoder.load_model(load_file + '.pth')
+        encoder_status = 'loaded'
     else:
-        aug1 = encoder_config['aug1']
+        encoder_status = 'scratch'
+    
+    encoder_name = dataset_name + '_do_' + str(encoder_config['dropout_ratio']) + '_seed_' + str(config['runseed']) + '_JK_' + str(encoder_config['JK'])
+    encoder_name += '_numlayer_' + str(encoder_config['num_layer']) + '_embdim_' + str(encoder_config['emb_dim'])
+    encoder_name +=  '_gnntype_' + str(encoder_config['gnn_type'])
+    encoder_name += '_bs_' + str(dataset_config['batch_size']) + "_status_" + str(encoder_status)
+    
+    contrastive_config = config['contrastive']
+    if not contrastive_config['aug_1']:
+        aug_1 = None
+    else:
+        aug_1 = contrastive_config['aug_1']
 
-    if not encoder_config['aug2']:
-        aug2 = None
+    if not contrastive_config['aug_2']:
+        aug_2 = None
     else:
-        aug2 = encoder_config['aug2']
-    graphcl = GNNGraphCL(encoder_config['emb_dim'], aug_1=aug1, aug_2=aug2, tau=encoder_config['tau'])
-    evaluator = NodeUnsupervised(dataset, train_mask=train_mask, val_mask=valid_mask, test_mask=test_mask, log_interval=encoder_config['log_interval'])
-    evaluator.evaluate(learning_model=graphcl, encoder=encoder)
+        aug_2 = contrastive_config['aug_2']
+
+    assert contrastive_config['emb_dim'] == encoder_config['emb_dim']
+    graphcl = GNNGraphCL(contrastive_config['emb_dim'], aug_1=aug_1, aug_2=aug_2, tau=contrastive_config['tau'], device=device)
+    
+    evaluator_config = config['evaluator']
+    if not evaluator_config['type']:
+        print("Error no evaluator type")
+        return
+    elif evaluator_config['type'] == 'node_unsupervised':
+        evaluator = NodeUnsupervised(dataset, train_loader, valid_loader, test_loader, clf_or_reg=task_type, device=device, config=evaluator_config)
+        encs = evaluator.evaluate(learning_model=graphcl, encoder=encoder)
+        save_encoder = encs[-1]
+
+    if load_save_config["save_model"]:
+        encoder_save_file = save_dir + encoder_name + ".pth"
+
+        if os.path.exists(encoder_save_file):
+            backup_file_name = encoder_save_file + ".bak-"+ now_time
+            os.system(f'mv {encoder_save_file} {backup_file_name}')
+        torch.save(save_encoder.state_dict(), encoder_save_file)
+
+
+    
+    
 
 def test():
     # set up
@@ -86,6 +120,7 @@ def test():
 
 if __name__ == "__main__":
     main()
-    # test()
+    # print("======")
+    # test2(True)
     
     

@@ -231,7 +231,7 @@ def main():
         if os.path.exists(model_save_file):
             backup_file_name = model_save_file + ".bak-"+ now_time
             os.system(f'mv {model_save_file} {backup_file_name}')
-        torch.save(model.gnn.state_dict(), save_dir + model_name + ".pth")
+        torch.save(model.gnn.state_dict(), model_save_file)
 
 if __name__ == '__main__':
     main()

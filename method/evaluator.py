@@ -1,9 +1,13 @@
 import copy
+from sklearn.metrics import mean_squared_error, roc_auc_score
+from scipy.stats import pearsonr
 import torch
 import numpy as np
 import torch.nn as nn
 from torch_geometric.data import DataLoader
 from sklearn import preprocessing
+from torch_geometric.nn import global_add_pool, global_mean_pool
+
 
 
 class LogReg(nn.Module):
@@ -62,39 +66,35 @@ class NodeUnsupervised(object):
     >>> evaluator.evaluate(model, encoder)
     """
     
-    def __init__(self, full_dataset, train_mask=None, val_mask=None, test_mask=None, 
-                 classifier='LogReg', metric='acc', device=None, log_interval=1, **kwargs):
+    def __init__(self, full_dataset, train_loader, valid_loader, test_loader, clf_or_reg,
+                device=None, config=None):
 
         self.full_dataset = full_dataset
-        self.train_mask = full_dataset[0].train_mask if train_mask is None else train_mask
-        self.val_mask = full_dataset[0].val_mask if val_mask is None else val_mask
-        self.test_mask = full_dataset[0].test_mask if test_mask is None else test_mask
-        self.metric = metric
+        self.train_loader = train_loader
+        self.valid_loader = valid_loader
+        self.test_loader = test_loader
+        self.clf = clf_or_reg == 'clf'
         self.device = device
-        self.classifier = classifier
-        self.log_interval = log_interval
-        self.num_classes = full_dataset.num_classes
         if device is None:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         elif isinstance(device, int):
             self.device = torch.device('cuda:%d'%device)
         else:
             self.device = device
+        
+        self.setup_train_config(config)
 
         # Use default config if not further specified
-        self.setup_train_config(**kwargs)
 
-    def setup_train_config(self, p_optim = 'Adam', p_lr = 0.01, p_weight_decay = 0, 
-                           p_epoch = 2000, logreg_wd = 0, comp_embed_on='cpu'):
+    def setup_train_config(self, config):
 
-        self.p_optim = p_optim
-        self.p_lr = p_lr
-        self.p_weight_decay = p_weight_decay
-        self.p_epoch = p_epoch
-        
-        self.comp_embed_on = comp_embed_on
-        self.logreg_wd = logreg_wd
-
+        self.p_optim = config['p_optim'] if config['p_optim'] else 'Adam'
+        self.p_lr = config['p_lr'] if config['p_lr'] else 0.01
+        self.p_weight_decay = config['p_weight_decay'] if config['p_weight_decay'] else 0
+        self.p_epoch = config['p_epoch'] if config['p_epoch'] else 100
+        self.log_interval = config['log_interval'] if config['log_interval'] else 10  
+        self.eval_train = config['eval_train']      
+    
     def evaluate(self, learning_model, encoder):
         r"""Run evaluation with given learning model and encoder(s).
         
@@ -106,7 +106,6 @@ class NodeUnsupervised(object):
         :rtype: (float, float)
         """
         
-        full_loader = DataLoader(self.full_dataset, 1)
         if isinstance(encoder, list):
             params = [{'params': enc.parameters()} for enc in encoder]
         else:
@@ -115,193 +114,92 @@ class NodeUnsupervised(object):
         p_optimizer = self.get_optim(self.p_optim)(params, lr=self.p_lr, 
                                                    weight_decay=self.p_weight_decay)
 
-        test_scores_m, test_scores_sd = [], []
         per_epoch_out = (self.log_interval<self.p_epoch)
-        for i, enc in enumerate(learning_model.train(encoder, full_loader, 
-                                                     p_optimizer, self.p_epoch, per_epoch_out)):
-            if not per_epoch_out or (i+1)%self.log_interval==0:
-                embed, lbls = self.get_embed(enc.to(self.device), full_loader)
-                lbs = np.array(preprocessing.LabelEncoder().fit_transform(lbls))
-                
-                test_scores = []
-                for _ in range(10):
-                    test_score = self.get_clf()(embed[self.train_mask], lbls[self.train_mask],
-                                                embed[self.test_mask], lbls[self.test_mask])
-                    test_scores.append(test_score)
-                
-                test_scores = torch.tensor(test_scores)
-                test_score_mean = test_scores.mean().item()
-                test_score_std = test_scores.std().item() 
-                test_scores_m.append(test_score_mean)
-                test_scores_sd.append(test_score_std)
-                
-        idx = np.argmax(test_scores_m)
-        acc = test_scores_m[idx]
-        std = test_scores_sd[idx]
-        print('Best epoch %d: acc %.4f (+/- %.4f).'%((idx+1)*self.log_interval, acc, std))
-        return acc
-    
-    
-    def evaluate_multisplits(self, learning_model, encoder, split_masks):
-        r"""Run evaluation with given learning model and encoder(s), return averaged scores 
-        on multiple different splits.
+        encs = []
+        for enc in learning_model.train(encoder, self.train_loader, 
+                                                    p_optimizer, self.p_epoch, per_epoch_out):
+            encs.append(enc)
         
-        Args:
-            learning_model: An object of a contrastive model (sslgraph.method.Contrastive)
-                or a predictive model.
-            encoder (torch.nn.Module): Trainable pytorch model or list of models.
-            split_masks (list, or generator): A list of generator that contains or yields masks for
-                train, val and test splits.
+        return encs
+        # for i, enc in enumerate(learning_model.train(encoder, self.train_loader, 
+        #                                              p_optimizer, self.p_epoch, per_epoch_out)):
+            # if not per_epoch_out or (i+1)%self.log_interval==0:
+            #     print("====Evaluation")
+            #     if self.clf:
+            #         if self.eval_train:
+            #             train_auc = self.clf_eval(enc.to(self.device), self.train_loader)
+            #         else:
+            #             print("omit the training accuracy computation")
+            #             train_auc = 0
+                    
+            #         valid_auc = self.clf_eval(enc.to(self.device), self.valid_loader)
+            #         test_auc = self.clf_eval(enc.to(self.device), self.test_loader)
 
-        :rtype: float
-
-        Example
-        -------
-        >>> split_masks = [(train1, val1, test1), (train2, val2, test2), ..., (train20, val20, test20)]
-        """
-        
-        full_loader = DataLoader(self.full_dataset, 1)
-        if isinstance(encoder, list):
-            params = [{'params': enc.parameters()} for enc in encoder]
-        else:
-            params = encoder.parameters()
-        
-        p_optimizer = self.get_optim(self.p_optim)(params, lr=self.p_lr, 
-                                                   weight_decay=self.p_weight_decay)
-
-        test_scores_m, test_scores_sd = [], []
-        per_epoch_out = (self.log_interval<self.p_epoch)
-        for i, enc in enumerate(learning_model.train(encoder, full_loader, 
-                                                     p_optimizer, self.p_epoch, per_epoch_out)):
-            if not per_epoch_out or (i+1)%self.log_interval==0:
-                embed, lbls = self.get_embed(enc.to(self.device), full_loader)
-                lbs = np.array(preprocessing.LabelEncoder().fit_transform(lbls))
-                
-                test_scores = []
-                for train_mask, val_mask, test_mask in split_masks:
-                    test_score = self.get_clf()(embed[train_mask], lbls[train_mask],
-                                                embed[test_mask], lbls[test_mask])
-                    test_scores.append(test_score)
-                
-                test_scores = torch.tensor(test_scores)
-                test_score_mean = test_scores.mean().item()
-                test_score_std = test_scores.std().item() 
-                test_scores_m.append(test_score_mean)
-                test_scores_sd.append(test_score_std)
-                
-        idx = np.argmax(test_scores_m)
-        acc = test_scores_m[idx]
-        std = test_scores_sd[idx]
-        print('Best epoch %d: acc %.4f (+/- %.4f).'%((idx+1)*self.log_interval, acc, std))
-        return acc
-
-
-    def grid_search(self, learning_model, encoder, p_lr_lst=[0.1,0.01,0.001], 
-                    p_epoch_lst=[2000]):
-        r"""Perform grid search on learning rate and epochs in pretraining.
-        
-        Args:
-            learning_model: An object of a contrastive model (sslgraph.method.Contrastive) 
-                or a predictive model.
-            encoder (torch.nn.Module): Trainable pytorch model or list of models.
-            p_lr_lst (list, optional): List of learning rate candidates.
-            p_epoch_lst (list, optional): List of epochs number candidates.
-
-        :rtype: (float, float, (float, int))
-        """
-        
-        acc_m_lst = []
-        acc_sd_lst = []
-        paras = []
-        for p_lr in p_lr_lst:
-            for p_epoch in p_epoch_lst:
-                self.setup_train_config(p_lr=p_lr, p_epoch=p_epoch)
-                model = copy.deepcopy(learning_model)
-                enc = copy.deepcopy(encoder)
-                acc_m, acc_sd = self.evaluate(model, enc)
-                acc_m_lst.append(acc_m)
-                acc_sd_lst.append(acc_sd)
-                paras.append((p_lr, p_epoch))
-        idx = np.argmax(acc_m_lst)
-        print('Best paras: %d epoch, lr=%f, acc=%.4f' %(
-            paras[idx][1], paras[idx][0], acc_m_lst[idx]))
-        
-        return acc_m_lst[idx], acc_sd_lst[idx], paras[idx]
-
+            #         print("train auc: %f val auc: %f test auc: %f" %(train_auc, valid_auc, test_auc))
+            #     else:
+            #         if self.pre_training_config['eval_train']:
+            #             train_mse, train_cor = self.reg_eval(enc.to(self.device), self.train_loader)
+            #         else:
+            #             print("omit the training accuracy computation")
+            #             train_mse, train_cor = 0, 0
+                    
+            #         val_mse, val_cor = self.reg_eval(enc.to(self.device), self.valid_loader)
+            #         test_mse, test_cor = self.reg_eval(enc.to(self.device), self.test_loader)
+                    
+            #         print("mse train: %f mse val: %f mse test: %f" %(train_mse, val_mse, test_mse))
+            #         print("cor train: %f cor val: %f cor test: %f" %(train_cor, val_cor, test_cor))
+            # pass
     
-    def svc_clf(self, train_embs, train_lbls, test_embs, test_lbls):
-
-        if self.search:
-            params = {'C':[0.001, 0.01,0.1,1,10,100,1000]}
-            classifier = GridSearchCV(SVC(), params, cv=5, scoring='accuracy', verbose=0)
-        else:
-            classifier = SVC(C=10)
-
-        classifier.fit(train_embs, train_lbls)
-        acc = accuracy_score(test_lbls, classifier.predict(test_embs))
-            
-        return acc
-    
-    
-    def log_reg(self, train_embs, train_lbls, test_embs, test_lbls):
-        
-        hid_units = train_embs.shape[1]
-        train_embs = torch.from_numpy(train_embs).to(self.device)
-        train_lbls = torch.from_numpy(train_lbls).to(self.device)
-        test_embs = torch.from_numpy(test_embs).to(self.device)
-        test_lbls = torch.from_numpy(test_lbls).to(self.device)
-
-        xent = nn.CrossEntropyLoss()
-        log = LogReg(hid_units, self.num_classes)
-        log.to(self.device)
-        opt = torch.optim.Adam(log.parameters(), lr=0.01, 
-                               weight_decay=self.logreg_wd)
-
-        best_val = 0
-        test_acc = None
-        for it in range(300):
-            log.train()
-            opt.zero_grad()
-
-            logits = log(train_embs)
-            loss = xent(logits, train_lbls)
-
-            loss.backward()
-            opt.step()
-
-        logits = log(test_embs)
-        preds = torch.argmax(logits, dim=1)
-        acc = torch.sum(preds == test_lbls).float() / test_lbls.shape[0]
-        
-        return acc.item()
-    
-    
-    def get_embed(self, model, loader):
-    
+    def clf_eval(self, model, loader):
         model.eval()
-        model.to(self.comp_embed_on)
-        ret, y = [], []
-        with torch.no_grad():
-            for data in loader:
-                y.append(data.y.numpy())
-                data.to(self.comp_embed_on)
-                embed = model(data)
-                ret.append(embed.cpu().numpy())
-                
-        model.to(self.device)
-        ret = np.concatenate(ret, 0)
-        y = np.concatenate(y, 0)
-        return ret, y
+        y_true = []
+        y_scores = []
         
-        
-    def get_clf(self):
-        
-        if self.classifier == 'SVC':
-            return self.svc_clf
-        elif self.classifier == 'LogReg':
-            return self.log_reg
-        else:
-            return None
+        for batch in loader:
+            batch = batch.to(self.device)
+            with torch.no_grad():
+                pred = model(batch.x, batch.edge_index, batch.edge_attr)
+
+            y_true.append(batch.y.view(pred.shape))
+            y_scores.append(pred)
+
+        y_true = torch.cat(y_true, dim = 0).cpu().numpy()
+        y_scores = torch.cat(y_scores, dim = 0).cpu().numpy()
+        roc_list = []
+        for i in range(y_true.shape[1]):
+            #AUC is only defined when there is more than one class.
+            if np.sum(y_true[:,i] == 1) > 0 and np.sum(y_true[:,i] == 0) > 0:
+                is_valid = y_true[:,i]**2 >= 0
+                # roc_list.append(roc_auc_score((y_true[is_valid,i] + 1)/2, y_scores[is_valid,i]))
+                roc_list.append(roc_auc_score(y_true[is_valid,i], y_scores[is_valid,i]))
+
+        if len(roc_list) < y_true.shape[1]:
+            print("Some target is missing!")
+            print("Missing ratio: %f" %(1 - float(len(roc_list))/y_true.shape[1]))
+
+        return sum(roc_list)/len(roc_list) #y_true.shape[1]    
+    
+    def reg_eval(self, model, loader):
+        model.eval()
+        y_true = []
+        y_scores = []
+
+        for batch in loader:
+            batch = batch.to(self.device)
+            
+            with torch.no_grad():
+                pred = model(batch.x, batch.edge_index, batch.edge_attr)
+
+            y_true.append(batch.y.view(pred.shape))
+            y_scores.append(pred)
+
+        y_true = torch.cat(y_true, dim = 0).cpu().numpy().flatten()
+        y_scores = torch.cat(y_scores, dim = 0).cpu().numpy().flatten()
+        mse = mean_squared_error(y_true, y_scores)
+        cor = pearsonr(y_true, y_scores)[0]
+        return mse, cor
+
+
         
     
     def get_optim(self, optim):
