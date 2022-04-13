@@ -8,6 +8,7 @@ from rdkit import Chem
 from rdkit.Chem.rdchem import BondType as BT
 from rdkit.Chem import AllChem
 from rdkit.Chem.Scaffolds.MurckoScaffold import MurckoScaffoldSmiles
+from torch_geometric.utils import to_dense_adj, dense_to_sparse, subgraph
 from rdkit import RDLogger                                                                                                                                                               
 RDLogger.DisableLog('rdApp.*') 
 
@@ -115,7 +116,6 @@ class NodeAttrMask(ViewFunction):
         else:
             return Data(x=x, edge_index=data.edge_index, edge_attr=data.edge_attr)
 
-
 class ScaffoldAwareNodeAttrMask(ViewFunction):
     '''Node attribute masking on the given graph or batched graphs. 
     Class objects callable via method :meth:`views_fn`.
@@ -143,7 +143,10 @@ class ScaffoldAwareNodeAttrMask(ViewFunction):
     def get_non_scaffold_indices(self, smiles):
         """Given the smiles of the molecule, calculate which indices of the data are not part of the scaffold, and 
         therefore can be masked for the augmentations"""
-        smiles_of_scaffold = MurckoScaffoldSmiles(smiles)
+        try:
+            smiles_of_scaffold = MurckoScaffoldSmiles(smiles)
+        except:
+            pass  
         mol = Chem.MolFromSmiles(smiles)
         mol_with_h = Chem.AddHs(mol)
         scaffold = Chem.MolFromSmiles(smiles_of_scaffold)
@@ -188,5 +191,77 @@ class ScaffoldAwareNodeAttrMask(ViewFunction):
         else:
             return Data(x=x, edge_index=data.edge_index, edge_attr=data.edge_attr, smiles=smiles)
 
+class UniformNodeDrop(ViewFunction):
+    '''Uniformly node dropping on the given graph or batched graphs. 
+    Class objects callable via method :meth:`views_fn`.
+    
+    Args:
+        mask_ratio (float, optinal): The ratio of node attributes to be masked. (default: :obj:`0.1`)
+        device (default:: :str:'cpu')
+    '''
+    def __init__(self, drop_ratio=0.1, device='cpu'):
+        self.drop_ratio = drop_ratio
+        self.device = device
+    
+    def do_trans(self, data):
+        
+        node_num, _ = data.x.size()
+        _, edge_num = data.edge_index.size()
+        
+        keep_num = int(node_num * (1-self.drop_ratio))
+        idx_nondrop = torch.randperm(node_num, device=self.device)[:keep_num]
+        mask_nondrop = torch.zeros_like(data.x[:,0]).scatter_(0, idx_nondrop, 1.0).bool()
+        
+        edge_index, edge_attr = subgraph(mask_nondrop, edge_index=data.edge_index, edge_attr=data.edge_attr, relabel_nodes=True, num_nodes=node_num)
+        return Data(x=data.x[mask_nondrop], edge_index=edge_index, edge_attr=edge_attr)
 
+class ScaffoldAwareUniformNodeDrop(ViewFunction):
+    '''Uniformly node dropping on the given graph or batched graphs. 
+    Class objects callable via method :meth:`views_fn`.
+    
+    Args:
+        mask_ratio (float, optinal): The ratio of node attributes to be masked. (default: :obj:`0.1`)
+        device (default:: :str:'cpu')
+    '''
+    def __init__(self, drop_ratio=0.1, device='cpu'):
+        self.drop_ratio = drop_ratio
+        self.device = device
+
+    def get_non_scaffold_indices(self, smiles):
+        """Given the smiles of the molecule, calculate which indices of the data are not part of the scaffold, and 
+        therefore can be masked for the augmentations"""
+        try:
+            smiles_of_scaffold = MurckoScaffoldSmiles(smiles)
+        except:
+            pass  
+        mol = Chem.MolFromSmiles(smiles)
+        mol_with_h = Chem.AddHs(mol)
+        scaffold = Chem.MolFromSmiles(smiles_of_scaffold)
+        scaffold_indices = mol.GetSubstructMatch(scaffold)
+        non_scaffold_indices = [i for i in range(mol.GetNumAtoms()) if i not in scaffold_indices]
+        num_atoms_mol = mol.GetNumAtoms()
+        num_atoms_mol_h = mol_with_h.GetNumAtoms()
+        extra_atoms = num_atoms_mol_h - num_atoms_mol
+        non_scaffold_indices += [i + num_atoms_mol for i in range(extra_atoms)]
+
+        return non_scaffold_indices
+    
+    def do_trans(self, data):
+
+        node_num, _ = data.x.size()
+        if not data.smiles:
+            raise Exception("Data does not have corresponding smiles")
+        smiles = data.smiles
+        non_scaffold_indices = self.get_non_scaffold_indices(smiles) # indices that can be dropped 
+        
+        drop_num = int(len(non_scaffold_indices) * self.drop_ratio)
+        idx_drop = list(np.random.choice(non_scaffold_indices, drop_num, replace=False))
+        idx_nondrop = [i for i in range(node_num) if i not in idx_drop]
+        idx_nondrop = torch.tensor(idx_nondrop, device=self.device)
+        mask_nondrop = torch.zeros_like(data.x[:,0]).scatter_(0, idx_nondrop, 1.0).bool()
+        edge_index, edge_attr = subgraph(mask_nondrop, edge_index=data.edge_index, edge_attr=data.edge_attr, relabel_nodes=True, num_nodes=node_num)
+        
+        return Data(x=data.x[mask_nondrop], edge_index=edge_index, edge_attr=edge_attr)
+
+    
 

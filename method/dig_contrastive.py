@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch_geometric.data import Batch, Data
 from dig.sslgraph.method.contrastive.objectives import NCE_loss, JSE_loss
 from torch_geometric.nn import global_add_pool, global_mean_pool
-
+from tqdm import tqdm
 
 class Contrastive(nn.Module):
     r"""
@@ -168,7 +168,7 @@ class Contrastive(nn.Module):
             for epoch in t:
                 epoch_loss = 0.0
                 t.set_description('Pretraining: epoch %d' % (epoch+1))
-                for data in data_loader:
+                for data in tqdm(data_loader):
                     data = data.to(self.device)
                     optimizer.zero_grad()
                     if None in self.views_fn: 
@@ -176,6 +176,8 @@ class Contrastive(nn.Module):
                         views = []
                         for v_fn in self.views_fn:
                             if v_fn is not None:
+                                view = v_fn(data)
+                                batch += []
                                 views += [*v_fn(data)]
                     else:
                         views = [v_fn(data) for v_fn in self.views_fn]
@@ -184,7 +186,8 @@ class Contrastive(nn.Module):
                     for view, enc in zip(views, encoders):
                         z = self._get_embed(enc, view.to(self.device))
                         # pool z
-                        z = global_mean_pool(z, data.batch)
+                        # z = global_mean_pool(z, data.batch)
+                        z = global_mean_pool(z, view.batch)
                         zs.append(self.proj_head_g(z))
 
                     loss = self.loss_fn(zs, neg_by_crpt=self.neg_by_crpt, tau=self.tau)
@@ -192,6 +195,12 @@ class Contrastive(nn.Module):
                     optimizer.step()
                     epoch_loss += loss
                     
+                # if isinstance(encoder, list):
+                #     for i, enc in enumerate(encoder):
+                #             torch.save(enc.state_dict(), self.model_path+'/enc%d_best.pkl'%i)
+                # else:
+                #     torch.save(encoder.state_dict(), self.model_path+'/enc_best.pkl')
+
                 if self.per_epoch_out:
                     yield encoder, self.proj_head_g
                         
@@ -205,7 +214,7 @@ class Contrastive(nn.Module):
                             os.mkdir(self.model_path)
                         except:
                             raise RuntimeError('cannot create model path')
-
+                    
                     if isinstance(encoder, list):
                         for i, enc in enumerate(encoder):
                             torch.save(enc.state_dict(), self.model_path+'/enc%d_best.pkl'%i)
@@ -251,7 +260,7 @@ class Contrastive(nn.Module):
             for epoch in t:
                 epoch_loss = 0.0
                 t.set_description('Pretraining: epoch %d' % (epoch+1))
-                for data in data_loader:
+                for data in tqdm(data_loader):
                     optimizer.zero_grad()
                     if None in self.views_fn:
                         # For view fn that returns multiple views
@@ -318,7 +327,7 @@ class Contrastive(nn.Module):
             for epoch in t:
                 epoch_loss = 0.0
                 t.set_description('Pretraining: epoch %d' % (epoch+1))
-                for data in data_loader:
+                for data in tqdm(data_loader):
                     optimizer.zero_grad()
                     if None in self.views_fn:
                         views = []

@@ -1,0 +1,71 @@
+gpu: cpu                                    # training GPU e.g cuda:0
+runseed: 42                                   # seed for torch and numpy
+
+fine_tune_dataset:
+    batch_size: 32                            # batch size
+    ogbg_data_path: datasets/fine_tuning/ogb  # path of fine-tuning ogbg data
+    ogbg_dataset_name: sider                # name of specific ogbg dataset 'tox21','toxcast','muv','bace','bbbp','clintox','sider','esol','freesolv','lipo'
+
+fine_tune_model:
+    num_layer: 4                              # number of message passing layers
+    emb_dim: 32                               # embedding dimension
+    dropout_ratio: 0.5                        # dropout ration
+    graph_pooling: mean                       # graph level pooling (sum, mean, max, set2set, attention)
+    JK: last                                  # how the node features across layers are combined. last, sum, max or concat
+    gnn_type: gin                             # GNN type (gin, gcn)
+
+fine_tune_optimizer:
+    lr: 0.001                                 # learning rate
+    lr_scale: 1                               # relative learning rate for the feature extraction layer
+    decay: 0                                  # weight decay 
+
+fine_tune_training:
+    epoch: 1                                # total number of epochs
+    eval_train: True                        # evaluating training or not
+    early_stopping: False
+    print_every: 10
+
+load_save_fine_tune:
+    load_model_dir: null     # directory of the model to be loaded (not including results/ e.g. ... fine_tuning/sider/
+    load_model_name: null               # exact file name without extension 
+    save_model: False                        # True or False if want to save fine_tuning model 
+
+pre_train_dataset:
+    batch_size: 32                            # batch size
+    pubchem_data_path: datasets/pre_training/pubchem  # path of pre-training ogbg data
+    pubchem_dataset_name: sider                # name of specific ogbg dataset 'tox21','toxcast','muv','bace','bbbp','clintox','sider','esol','freesolv','lipo'
+    train_fraction: 0.8
+    valid_fraction: 0.1
+    test_fraction: 0.1
+    splitting: scaffold                      # [scaffold, random] to determine how to split the dataset
+
+pre_train_encoder:
+    num_layer: 4
+    emb_dim: 32
+    dropout_ratio: 0.5                        # dropout ration
+    graph_pooling: mean                       # graph level pooling (sum, mean, max, set2set, attention)
+    JK: last                                  # how the node features across layers are combined. last, sum, max or concat
+    gnn_type: gin                             # GNN type (gin, gcn)
+
+
+contrastive:
+    emb_dim: 32
+    aug_1: maskNScaffold                     # identity or maskN or maskNScaffold
+    aug_2: maskNScaffold
+    tau: 0.2
+
+evaluator:
+    type: node_unsupervised
+    p_optim: Adam
+    p_lr: 0.01
+    p_weight_decay: 0
+    p_epoch: 1                              # pre_training epochs
+    log_interval: 1
+    batch_size: 32
+    eval_train: True                        # evaluating training or not
+
+
+load_save_pre_train:
+    load_model_dir:     # directory of the model to be loaded (not including results/ e.g. ... fine_tuning/sider/
+    load_model_name:    # exact file name without extension 
+    save_model: True                        # True or False if want to save fine_tuning model 

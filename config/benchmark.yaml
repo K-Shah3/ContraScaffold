@@ -1,0 +1,31 @@
+gpu: cuda:0                                    # training GPU e.g cuda:0
+runseed: 42                                   # seed for torch and numpy
+
+benchmark_dataset:
+    batch_size: 32                            # batch size
+    ogbg_data_path: datasets/fine_tuning/ogb  # path of fine-tuning ogbg data
+    ogbg_dataset_name: muv                # name of specific ogbg dataset 'tox21','toxcast','muv','bace','bbbp','clintox','sider','esol','freesolv','lipo'
+
+benchmark_model:
+    num_layer: 5                              # number of message passing layers
+    emb_dim: 100                              # embedding dimension
+    dropout_ratio: 0.5                        # dropout ration
+    graph_pooling: mean                       # graph level pooling (sum, mean, max, set2set, attention)
+    JK: last                                  # how the node features across layers are combined. last, sum, max or concat
+    gnn_type: gcn                             # GNN type (gin, gcn)
+
+benchmark_optimizer:
+    lr: 0.1                                 # learning rate
+    lr_scale: 1                               # relative learning rate for the feature extraction layer
+    decay: 0                                  # weight decay 
+
+benchmark_training:
+    epoch: 100                                # total number of epochs
+    eval_train: True                        # evaluating training or not
+    early_stopping: True
+    print_every: 10
+
+load_save_benchmark:
+    load_model_dir: null     # directory of the model to be loaded (not including results/ e.g. ... fine_tuning/sider/
+    load_model_name: null               # exact file name without extension 
+    save_model: True                        # True or False if want to save fine_tuning model 

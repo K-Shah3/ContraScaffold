@@ -14,6 +14,7 @@ import datetime
 from training.pre_training import pre_train
 from utils import get_device
 import csv
+import argparse
 
 def clf_training(model, device, loader, optimizer):
     model.train()
@@ -37,7 +38,7 @@ def clf_training(model, device, loader, optimizer):
     
 def reg_training(model, device, loader, optimizer):
     model.train()
-    for step, batch in enumerate(tqdm(loader, desc="Iteration")):
+    for step, batch in enumerate(loader):
         batch = batch.to(device)
         pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
         y = batch.y.view(pred.shape).to(torch.float64)
@@ -83,8 +84,7 @@ def reg_evaluation(model, device, loader):
     model.eval()
     y_true = []
     y_scores = []
-
-    for step, batch in enumerate(tqdm(loader, desc="Iteration")):
+    for step, batch in enumerate(loader):
         batch = batch.to(device)
 
         with torch.no_grad():
@@ -97,11 +97,10 @@ def reg_evaluation(model, device, loader):
     y_scores = torch.cat(y_scores, dim = 0).cpu().numpy().flatten()
     mse = mean_squared_error(y_true, y_scores)
     cor = pearsonr(y_true, y_scores)[0]
-    print(mse, cor)
     return mse, cor
 
 
-def fine_tune(input_config):
+def benchmark(input_config):
     # set up
     if type(input_config) is str:
         path_to_config = f'config/{input_config}.yaml'
@@ -116,27 +115,26 @@ def fine_tune(input_config):
     # device = 'cpu'
     
     # set up dataset
-    dataset_config = config['fine_tune_dataset']
+    dataset_config = config['benchmark_dataset']
     dataset_name = dataset_config['ogbg_dataset_name']
     print(f'dataset name: {dataset_name}')
     dataset_path = dataset_config['ogbg_data_path']
     num_tasks, task_type, metric = download_ogb.get_num_type_metric_of_ogbg_dataset(dataset_name)
-    dataset = download_ogb.get_ogbg_dataset(dataset_name=dataset_name, root=dataset_path)
     train_loader, valid_loader, test_loader = download_ogb.get_ogbg_dataset_loaders(dataset_name, batch_size=dataset_config['batch_size'], root=dataset_path)
 
     # set up load and save directories
-    load_save_config = config["load_save_fine_tune"]
+    load_save_config = config["load_save_benchmark"]
     if load_save_config["load_model_dir"]:
         load_file = f"results/{load_save_config['load_model_dir']}/{load_save_config['load_model_name']}"
     else:
         load_file = None
     
-    save_dir = f'results/fine_tuning/{dataset_name}/'
+    save_dir = f'results/benchmark/{dataset_name}/'
     if not os.path.exists(save_dir):
         os.system(f'mkdir -p {save_dir}')
 
     # set up model
-    model_config = config['fine_tune_model']
+    model_config = config['benchmark_model']
     model = GNNGraphPred(model_config['num_layer'], model_config['emb_dim'], num_tasks, JK = model_config['JK'], 
                         drop_ratio = model_config['dropout_ratio'], graph_pooling = model_config['graph_pooling'], 
                         gnn_type = model_config['gnn_type'])
@@ -152,26 +150,22 @@ def fine_tune(input_config):
 
     # set up optimizer
     # different learning rate for different part of GNN
-    optimizer_config = config['fine_tune_optimizer']
+    optimizer_config = config['benchmark_optimizer']
     model_param_group = []
     model_param_group.append({"params": model.gnn.parameters()})
     model_param_group.append({"params": model.graph_pred_linear.parameters(), "lr":optimizer_config['lr']*optimizer_config['lr_scale']})
     optimizer = optim.Adam(model_param_group, lr=optimizer_config['lr'], weight_decay=optimizer_config['decay'])
 
     # train, validate and test
-    training_config = config['fine_tune_training']
+    training_config = config['benchmark_training']
 
     model_name = dataset_name + '_do_' + str(model_config['dropout_ratio']) + '_seed_' + str(config['runseed']) + '_JK_' + str(model_config['JK'])
     model_name += '_numlayer_' + str(model_config['num_layer']) + '_embdim_' + str(model_config['emb_dim'])
     model_name += '_graphpooling_' + str(model_config['graph_pooling']) + '_gnntype_' + str(model_config['gnn_type'])
     model_name += '_epoch_' + str(training_config['epoch']) + '_bs_' + str(dataset_config['batch_size']) + "_status_" + model_status
     model.to(device)
-    if model_status=="loaded":
-        aug1 = config['contrastive']['aug_1']
-        aug2 = config['contrastive']['aug_2']
-        txtfile = f'{save_dir}{model_name}_{aug1}_{aug2}.txt'
-    else:
-        txtfile = save_dir + model_name + ".txt"
+    
+    txtfile = save_dir + model_name + ".txt"
     if os.path.exists(txtfile):
         backup_file_name = txtfile + ".bak-"+ now_time
         os.system(f'mv {txtfile} {backup_file_name}')
@@ -220,11 +214,8 @@ def fine_tune(input_config):
         with open(txtfile, "a") as myfile:
             myfile.write('epoch: train_mse train_cor val_mse val_cor test_mse test_cor\n')
         for epoch in range(1, training_config['epoch']+1):
-            print("====epoch " + str(epoch))
-
             reg_training(model, device, train_loader, optimizer)
 
-            print("====Evaluation")
             if  training_config['eval_train']:
                 train_mse, train_cor = reg_evaluation(model, device, train_loader)
             else:
@@ -233,6 +224,11 @@ def fine_tune(input_config):
             val_mse, val_cor = reg_evaluation(model, device, valid_loader)
             test_mse, test_cor = reg_evaluation(model, device, test_loader)
 
+            if epoch % training_config['print_every'] == 0:
+                print("====epoch " + str(epoch))
+                print(f'train mse: {train_mse} val mse: {val_mse} test mse: {test_mse}')
+                print(f'train cor: {train_cor} val cor: {val_cor} test cor: {test_cor}')
+
             with open(txtfile, "a") as myfile:
                 myfile.write(str(int(epoch)) + ': ' + str(train_mse) + ' ' + str(train_cor) + ' ' + str(val_mse) + ' ' + str(val_cor) + ' ' + str(test_mse) + ' ' + str(test_cor) + "\n")
                 
@@ -240,7 +236,7 @@ def fine_tune(input_config):
         print("final cor train: %f cor val: %f cor test: %f" %(train_cor, val_cor, test_cor))
         final_results = [train_mse, val_mse, test_mse, train_cor, val_cor, test_cor]
     
-    save_results('results/final_results/results.csv', task_type, final_results, config)
+    save_results('results/final_results/benchmark.csv', task_type, final_results, config, epoch)
 
     if load_save_config["save_model"]:
         if model_status == "loaded":
@@ -257,29 +253,26 @@ def fine_tune(input_config):
 
     return save_dir, model_name, config
 
-def save_results(file_path, task_type, final_results, config):
-    fieldnames = ['pretrain_dataset', 'finetune_dataset', 'aug1', 'aug2', 
-    'epochs', 'bs', 'lr', 'gnn_type', 'num_layers', 'emb_dim', 
+def save_results(file_path, task_type, final_results, config, epoch=None):
+    fieldnames = ['ogbg_dataset', 'epochs', 'bs', 'lr',
+    'gnn_type', 'num_layers', 'emb_dim', 
     'train_auc', 'val_auc', 'test_auc', 
     'train_mse', 'val_mse', 'test_mse',
-    'train_cor', 'val_cor', 'test_cor', 'model_loaded_from']
+    'train_cor', 'val_cor', 'test_cor']
 
     row = {
-        'pretrain_dataset':config['pre_train_dataset']['pubchem_dataset_name'], 
-        'finetune_dataset':config['fine_tune_dataset']['ogbg_dataset_name'], 
-        'aug1':config['contrastive']['aug_1'], 'aug2': config['contrastive']['aug_2'], 
-        'epochs':config['fine_tune_training']['epoch'], 
-        'bs':config['fine_tune_dataset']['batch_size'],
-        'lr':config['fine_tune_optimizer']['lr'],
-        'gnn_type':config['fine_tune_model']['gnn_type'], 
-        'num_layers':config['fine_tune_model']['num_layer'], 
-        'emb_dim':config['fine_tune_model']['emb_dim']
+        'ogbg_dataset':config['benchmark_dataset']['ogbg_dataset_name'], 
+        'epochs':config['benchmark_training']['epoch'], 
+        'bs':config['benchmark_dataset']['batch_size'],
+        'lr':config['benchmark_optimizer']['lr'],
+        'gnn_type':config['benchmark_model']['gnn_type'], 
+        'num_layers':config['benchmark_model']['num_layer'], 
+        'emb_dim':config['benchmark_model']['emb_dim']
     }
-    if config['load_save_fine_tune']['load_model_name']:
-        row['model_loaded_from'] = config['load_save_fine_tune']['load_model_name']
-        row['aug1'] = None
-        row['aug2'] = None
 
+    if config['benchmark_training']['early_stopping']:
+        row['epochs'] = epoch
+    
     if task_type == 'clf':
         row['train_auc'] = final_results[0]
         row['val_auc'] = final_results[1]
@@ -295,11 +288,26 @@ def save_results(file_path, task_type, final_results, config):
     with open(file_path, 'a') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writerow(row)
-        
         f.close()
 
 if __name__ == '__main__':
-    fine_tune('config')
+    cli = argparse.ArgumentParser()
+    cli.add_argument(
+        "-c", "--benchmark_config", # default config file
+        type=str
+    )
+
+    args = cli.parse_args()
+    config_file = args.benchmark_config
+    
+    path_to_config = f'config/{config_file}.yaml'
+    config = yaml.load(open(path_to_config, "r"), Loader=yaml.FullLoader)
+    dataset_name = config['benchmark_dataset']['ogbg_dataset_name']
+    # benchmark(config_file)
+    try:
+        benchmark(config_file)
+    except Exception as e:
+        print(e)
+        print(f'Exception occured while benchmarking {dataset_name}')
 
     
-

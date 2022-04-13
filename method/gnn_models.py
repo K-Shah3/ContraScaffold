@@ -10,7 +10,7 @@ from torch_geometric.nn.inits import glorot, zeros
 # from dig.sslgraph.method.contrastive.views_fn import NodeAttrMask, EdgePerturbation, \
 #     UniformSample, RWSample, RandomView
 from method.dig_contrastive import Contrastive
-from method.views_fn import IdentityViewFunction, NodeAttrMask, ScaffoldAwareNodeAttrMask
+from method.views_fn import IdentityViewFunction, NodeAttrMask, ScaffoldAwareNodeAttrMask, UniformNodeDrop, ScaffoldAwareUniformNodeDrop
 
 num_atom_type = 120 #including the extra mask tokens=119
 num_chirality_tag = 3 # original =3. including the extra mask tokens=3
@@ -306,6 +306,10 @@ class GNNGraphCL(Contrastive):
                 views_fn.append(NodeAttrMask(mask_ratio=aug_ratio, device=self.device))
             elif aug == 'maskNScaffold':
                 views_fn.append(ScaffoldAwareNodeAttrMask(mask_ratio=aug_ratio, device=self.device))
+            elif aug == 'uniformDropN':
+                views_fn.append(UniformNodeDrop(drop_ratio=aug_ratio, device=self.device))
+            elif aug == 'uniformDropNScaffold':
+                views_fn.append(ScaffoldAwareUniformNodeDrop(drop_ratio=aug_ratio, device=self.device))
             else:
                 raise Exception("Aug must be from ['maskN', 'identity', 'maskNScaffold'] or None.")
         
