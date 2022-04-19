@@ -13,7 +13,7 @@ from method.dig_contrastive import Contrastive
 from method.views_fn import IdentityViewFunction, NodeAttrMask, ScaffoldAwareNodeAttrMask, UniformNodeDrop, ScaffoldAwareUniformNodeDrop
 
 num_atom_type = 120 #including the extra mask tokens=119
-num_chirality_tag = 3 # original =3. including the extra mask tokens=3
+num_chirality_tag = 4 # original =3. including the extra mask tokens=3
 num_bond_type = 6 #including aromatic and self-loop edge, and extra masked tokens
 num_bond_direction = 3 # original =3, inlcuding the extra mask tokens=3
 
@@ -164,6 +164,7 @@ class GNN(torch.nn.Module):
 
         # x1_unique = torch.unique(x[:, 0])
         # x2_unique = torch.unique(x[:, 1])
+        
         # print(f'unique x1: {x1_unique}')
         # print(f'unique x2: {x2_unique}')
         
@@ -295,8 +296,9 @@ class GNNGraphCL(Contrastive):
         **kwargs (optinal): Additional arguments of :class:`dig.sslgraph.method.Contrastive`.
     """
 
-    def __init__(self, dim, aug_1=None, aug_2=None, aug_ratio=0.2, device='cpu', **kwargs):
+    def __init__(self, dim, aug_1=None, aug_2=None, aug_ratio=0.2, device='cpu', model_checkpoint_path='models', encoder_name='enc', **kwargs):
         self.device = device
+        self.encoder_name = encoder_name
         views_fn = []
         # TODO: implement other augmentations
         for aug in [aug_1, aug_2]:
@@ -322,6 +324,8 @@ class GNNGraphCL(Contrastive):
                                         node_level=False,
                                         graph_level=True,
                                         device=self.device,
+                                        model_path=model_checkpoint_path,
+                                        encoder_name=self.encoder_name,
                                         **kwargs)
 
     def train(self, encoders, data_loader, optimizer, epochs, per_epoch_out=False):

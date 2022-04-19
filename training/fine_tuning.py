@@ -1,3 +1,4 @@
+from omegaconf import DictConfig
 from sklearn import config_context
 import datasets.fine_tuning.ogb.download_datasets as download_ogb
 import yaml
@@ -298,8 +299,18 @@ def save_results(file_path, task_type, final_results, config):
         
         f.close()
 
+def fine_tune_multiple(datasets, input_config):
+    path_to_config = f'config/{input_config}.yaml'
+    config = yaml.load(open(path_to_config, "r"), Loader=yaml.FullLoader)
+    for dataset in datasets:
+        config['fine_tune_dataset']['ogbg_dataset_name'] = dataset
+        fine_tune(config)
+
+
 if __name__ == '__main__':
-    fine_tune('config')
+    # fine_tune('config')
+    datasets = ['bace', 'bbbp', 'clintox', 'esol', 'lipo', 'sider']
+    fine_tune_multiple(datasets, 'config')
 
     
 

@@ -131,9 +131,11 @@ dmypy.json
 # Datasets downloaded 
 datasets/fine_tuning/ogb/ogb*
 datasets/pre_training/pubchem/
-results/
+results/*
+!results/final_results
 
 training/testing.py
 
 visualisations/scaffold_images
+model_checkpoints/
 

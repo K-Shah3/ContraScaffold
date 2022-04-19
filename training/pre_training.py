@@ -29,7 +29,7 @@ def pre_train(input_config):
     device = get_device(config['gpu'])
     torch.manual_seed(config['runseed'])
     np.random.seed(config['runseed'])
-    now_time = datetime.datetime.now().strftime('%Y-%m-%d-%H:%M:%S')
+    now_time = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
     # device = 'cpu'
     
     # set up dataset
@@ -81,6 +81,7 @@ def pre_train(input_config):
         encoder_status = 'scratch'
     
     encoder_name = dataset_name + '_do_' + str(encoder_config['dropout_ratio']) + '_seed_' + str(config['runseed']) + '_JK_' + str(encoder_config['JK'])
+    encoder_name += f"_trainfrac_{dataset_config['train_fraction']}"
     encoder_name += '_numlayer_' + str(encoder_config['num_layer']) + '_embdim_' + str(encoder_config['emb_dim'])
     encoder_name +=  '_gnntype_' + str(encoder_config['gnn_type'])
     encoder_name += '_bs_' + str(dataset_config['batch_size']) + "_status_" + str(encoder_status)
@@ -98,7 +99,9 @@ def pre_train(input_config):
 
     contrastive_name = f"_aug1_{contrastive_config['aug_1']}_aug2_{contrastive_config['aug_2']}"
     assert contrastive_config['emb_dim'] == encoder_config['emb_dim']
-    graphcl = GNNGraphCL(contrastive_config['emb_dim'], aug_1=aug_1, aug_2=aug_2, tau=contrastive_config['tau'], device=device)
+    model_checkpoint_save_path = f'model_checkpoints/{now_time}/'
+    graphcl = GNNGraphCL(contrastive_config['emb_dim'], aug_1=aug_1, aug_2=aug_2, tau=contrastive_config['tau'], device=device, 
+                            model_checkpoint_path=model_checkpoint_save_path, encoder_name=encoder_name)
     
     evaluator_config = config['evaluator']
     encoder_name += "_epoch_" + str(evaluator_config['p_epoch'])

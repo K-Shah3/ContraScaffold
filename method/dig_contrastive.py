@@ -57,8 +57,9 @@ class Contrastive(nn.Module):
                  neg_by_crpt=False,
                  tau=0.5,
                  device=None,
-                 choice_model='last',
-                 model_path='models'):
+                 choice_model='best',
+                 model_path='models',
+                 encoder_name='enc'):
 
         assert node_level is not None or graph_level is not None
         assert not (objective=='NCE' and neg_by_crpt)
@@ -77,6 +78,7 @@ class Contrastive(nn.Module):
         self.tau = tau
         self.choice_model = choice_model
         self.model_path = model_path
+        self.encoder_name = encoder_name
         if device is None:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         elif isinstance(device, int):
@@ -211,15 +213,15 @@ class Contrastive(nn.Module):
 
                     if not os.path.exists(self.model_path):
                         try:
-                            os.mkdir(self.model_path)
+                            os.makedirs(self.model_path)
                         except:
                             raise RuntimeError('cannot create model path')
                     
                     if isinstance(encoder, list):
                         for i, enc in enumerate(encoder):
-                            torch.save(enc.state_dict(), self.model_path+'/enc%d_best.pkl'%i)
+                            torch.save(enc.state_dict(), self.model_path+f'{self.encoder_name}_{i}_best_epoch.pkl')
                     else:
-                        torch.save(encoder.state_dict(), self.model_path+'/enc_best.pkl')
+                        torch.save(encoder.state_dict(), self.model_path+f'{self.encoder_name}_best_epoch.pkl')
             
             if self.choice_model == 'best':
                 
@@ -231,9 +233,9 @@ class Contrastive(nn.Module):
 
                 if isinstance(encoder, list):
                     for i, enc in enumerate(encoder):
-                        enc.load_state_dict(torch.load(self.model_path+'/enc%d_best.pkl'%i))
+                        enc.load_state_dict(torch.load(self.model_path+f'{self.encoder_name}_{i}_best_epoch.pkl'))
                 else:
-                    encoder.load_state_dict(torch.load(self.model_path+'/enc_best.pkl'))
+                    encoder.load_state_dict(torch.load(self.model_path+f'{self.encoder_name}_best_epoch.pkl'))
 
         if not self.per_epoch_out:
             yield encoder, self.proj_head_g
